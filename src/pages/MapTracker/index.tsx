@@ -133,16 +133,24 @@ interface TrackRoute {
     }
   }, [routes]);
 
-  // 当路线列表变化时，自动选中第一个路线
+  // 当路线列表变化时的处理逻辑
   useEffect(() => {
-    if (routes.length > 0 && !currentDetailRoute) {
-      setCurrentDetailRoute(routes[0]);
-    } else if (routes.length === 0) {
+    if (routes.length === 0) {
       setCurrentDetailRoute(null);
     } else if (currentDetailRoute && !routes.find(r => r.id === currentDetailRoute.id)) {
-      // 如果当前选中的路线被删除了，选择第一个可用路线
-      setCurrentDetailRoute(routes[0]);
+      // 如果当前选中的路线被删除了，取消选中状态
+      setCurrentDetailRoute(null);
+      resetRouteOpacity(); // 重置所有路线透明度
+      
+      // 调整视窗显示第一个可用路线
+      setTimeout(() => {
+        if (routes.length > 0 && routes[0].points.length > 0) {
+          console.log('选中路线被删除，自动调整视窗显示第一个路线:', routes[0].name);
+          fitRouteToView(routes[0]);
+        }
+      }, 300);
     }
+    // 移除自动选中第一个路线的逻辑，改为默认不选中
   }, [routes, currentDetailRoute]);
 
   // 地图加载完成后，重新绘制保存的路线
@@ -155,16 +163,21 @@ interface TrackRoute {
         }
       });
       
-      // 如果有当前详情路线，自动调整视窗
+      // 自动调整视窗逻辑
       setTimeout(() => {
         if (currentDetailRoute && currentDetailRoute.points.length > 0) {
+          // 如果有选中的路线，显示选中的路线
           fitRouteToView(currentDetailRoute);
+        } else if (routes.length > 0 && routes[0].points.length > 0) {
+          // 如果没有选中路线但有路线存在，显示第一个路线
+          console.log('没有选中路线，自动调整视窗显示第一个路线:', routes[0].name);
+          fitRouteToView(routes[0]);
         }
       }, 500); // 延迟执行，确保路线绘制完成
     }
   }, [map, AMap]);
 
-  // 监听当前详情路线变化，自动调整视窗
+  // 监听当前详情路线变化，自动调整视窗（仅在选中路线时）
   useEffect(() => {
     if (map && currentDetailRoute && currentDetailRoute.points.length > 0) {
       setTimeout(() => {
@@ -172,6 +185,19 @@ interface TrackRoute {
       }, 300); // 短暂延迟确保界面更新完成
     }
   }, [currentDetailRoute, map]);
+
+  // 确保在没有选中路线时也能看到路线
+  useEffect(() => {
+    if (map && routes.length > 0 && !currentDetailRoute) {
+      // 如果有路线但没有选中任何路线，显示第一个路线
+      setTimeout(() => {
+        if (routes[0].points.length > 0) {
+          console.log('确保路线可见，调整视窗显示第一个路线:', routes[0].name);
+          fitRouteToView(routes[0]);
+        }
+      }, 300);
+    }
+  }, [map, routes, currentDetailRoute]);
 
   // 自动调整地图视窗以适应路线
   const fitRouteToView = (route: TrackRoute) => {
@@ -189,7 +215,7 @@ interface TrackRoute {
        if (route.points.length === 1) {
          // 单点路线，直接设置中心点和合适的缩放级别
          const point = route.points[0];
-         currentMap.setZoomAndCenter(9, [point.lng, point.lat]);
+         currentMap.setZoomAndCenter(8, [point.lng, point.lat]);
          console.log('单点路线，设置中心点:', point);
        } else {
          // 多点路线，使用setFitView自动调整视窗
@@ -241,7 +267,9 @@ interface TrackRoute {
             console.log('开始添加点到路线');
             await addPointToCurrentRoute(e.lnglat.lng, e.lnglat.lat);
           } else {
-            console.log('未在绘制模式，忽略点击');
+            console.log('未在绘制模式，点击地图空白处，重置路线透明度');
+            // 点击地图空白处，重置所有路线透明度
+            resetRouteOpacity();
           }
         });
 
@@ -999,10 +1027,11 @@ interface TrackRoute {
         name: `路线${routes.length + 1}`
       };
       setRoutes(prev => [...prev, newRoute]);
-      setCurrentDetailRoute(newRoute); // 设置为当前详情路线
+      // 移除自动选中新路线的逻辑，保持默认不选中状态
       
-      // 自动调整视窗以显示新路线
+      // 自动调整视窗以显示新创建的路线（即使没有选中）
       setTimeout(() => {
+        console.log('新路线创建完成，调整视窗显示新路线:', newRoute.name);
         fitRouteToView(newRoute);
       }, 500);
     }
@@ -1078,8 +1107,30 @@ interface TrackRoute {
       }
       if (route.markers) {
         route.markers.forEach(marker => {
-          const currentOpacity = marker.getOpacity();
-          marker.setOpacity(currentOpacity > 0 ? 0 : 1);
+          // 通过DOM元素样式来切换标记点可见性
+          const markerElement = marker.getContent();
+          if (markerElement) {
+            let currentOpacity = '1';
+            if (markerElement.style && markerElement.style.opacity) {
+              currentOpacity = markerElement.style.opacity;
+            } else if (markerElement.querySelector) {
+              const innerElement = markerElement.querySelector('div');
+              if (innerElement && innerElement.style && innerElement.style.opacity) {
+                currentOpacity = innerElement.style.opacity;
+              }
+            }
+            
+            const newOpacity = parseFloat(currentOpacity) > 0 ? '0' : '1';
+            
+            if (markerElement.style) {
+              markerElement.style.opacity = newOpacity;
+            } else if (markerElement.querySelector) {
+              const innerElement = markerElement.querySelector('div');
+              if (innerElement && innerElement.style) {
+                innerElement.style.opacity = newOpacity;
+              }
+            }
+          }
         });
       }
     }
@@ -1256,13 +1307,14 @@ interface TrackRoute {
 
     // 添加到路线列表
     setRoutes(prev => [...prev, newRoute]);
-    setCurrentDetailRoute(newRoute); // 设置为当前详情路线
+    // 移除自动选中新路线的逻辑，保持默认不选中状态
     
     // 在地图上显示
     updateRouteOnMap(newRoute);
 
-    // 自动调整视窗以显示新路线
+    // 自动调整视窗以显示新创建的批量路线（即使没有选中）
     setTimeout(() => {
+      console.log('批量路线创建完成，调整视窗显示新路线:', newRoute.name);
       fitRouteToView(newRoute);
     }, 500);
 
@@ -1272,11 +1324,140 @@ interface TrackRoute {
     console.log('批量路线创建完成');
   };
 
-  // 选择路线详情
+  // 选择路线详情 - 支持切换选中/取消选中
   const selectRouteDetail = (route: TrackRoute) => {
-    setCurrentDetailRoute(route);
-    console.log('选择路线详情:', route.name);
+    // 如果点击的是当前已选中的路线，则取消选中
+    if (currentDetailRoute && currentDetailRoute.id === route.id) {
+      console.log('取消选中路线:', route.name);
+      setCurrentDetailRoute(null);
+      resetRouteOpacity(); // 重置所有路线透明度
+    } else {
+      // 选中新的路线
+      console.log('选择路线详情:', route.name);
+      setCurrentDetailRoute(route);
+      highlightSelectedRoute(route.id); // 高亮选中的路线，降低其他路线透明度
+    }
+    
     // 视窗调整在useEffect中自动处理
+  };
+
+  // 高亮选中的路线
+  const highlightSelectedRoute = (selectedRouteId: string) => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    console.log('高亮路线:', selectedRouteId);
+
+    // 遍历所有路线，调整透明度
+    routes.forEach(route => {
+      if (route.polyline) {
+        const isSelected = route.id === selectedRouteId;
+        const opacity = isSelected ? 0.9 : 0.3; // 选中路线高透明度，其他路线低透明度
+        
+        route.polyline.setOptions({
+          strokeOpacity: opacity
+        });
+        
+        console.log(`路线 ${route.name} 透明度设置为:`, opacity);
+      }
+      
+      // 调整标记点透明度
+      if (route.markers) {
+        route.markers.forEach(marker => {
+          const isSelected = route.id === selectedRouteId;
+          const opacity = isSelected ? 1 : 0.4;
+          
+          // 通过修改DOM元素样式设置透明度
+          const markerElement = marker.getContent();
+          if (markerElement) {
+            if (markerElement.style) {
+              markerElement.style.opacity = opacity.toString();
+            } else if (markerElement.querySelector) {
+              // 如果是包装元素，查找内部的标记元素
+              const innerElement = markerElement.querySelector('div');
+              if (innerElement && innerElement.style) {
+                innerElement.style.opacity = opacity.toString();
+              }
+            }
+          }
+        });
+      }
+    });
+  };
+
+  // 重置所有路线透明度
+  const resetRouteOpacity = () => {
+    const currentMap = mapRef.current;
+    if (!currentMap) return;
+
+    console.log('重置所有路线透明度');
+
+    routes.forEach(route => {
+      if (route.polyline) {
+        route.polyline.setOptions({
+          strokeOpacity: 0.8 // 恢复正常透明度
+        });
+      }
+      
+      if (route.markers) {
+        route.markers.forEach(marker => {
+          // 恢复正常透明度
+          const markerElement = marker.getContent();
+          if (markerElement) {
+            if (markerElement.style) {
+              markerElement.style.opacity = '1';
+            } else if (markerElement.querySelector) {
+              // 如果是包装元素，查找内部的标记元素
+              const innerElement = markerElement.querySelector('div');
+              if (innerElement && innerElement.style) {
+                innerElement.style.opacity = '1';
+              }
+            }
+          }
+        });
+      }
+    });
+  };
+
+  // 计算两点之间的直线距离（单位：米）
+  const calculateDistance = (point1: TrackPoint, point2: TrackPoint): number => {
+    const currentAMap = AMapRef.current;
+    if (!currentAMap) return 0;
+
+    try {
+      const lngLat1 = new currentAMap.LngLat(point1.lng, point1.lat);
+      const lngLat2 = new currentAMap.LngLat(point2.lng, point2.lat);
+      
+      // 使用高德地图API计算距离
+      const distance = lngLat1.distance(lngLat2);
+      return Math.round(distance); // 返回四舍五入的米数
+    } catch (error) {
+      console.error('计算距离失败:', error);
+      return 0;
+    }
+  };
+
+  // 格式化距离显示
+  const formatDistance = (distance: number): string => {
+    if (distance < 1000) {
+      return `${distance}m`;
+    } else if (distance < 10000) {
+      return `${(distance / 1000).toFixed(1)}km`;
+    } else {
+      return `${Math.round(distance / 1000)}km`;
+    }
+  };
+
+  // 计算路线总距离
+  const calculateTotalDistance = (route: TrackRoute): string => {
+    if (route.points.length < 2) return '0m';
+    
+    let totalDistance = 0;
+    for (let i = 0; i < route.points.length - 1; i++) {
+      totalDistance += calculateDistance(route.points[i], route.points[i + 1]);
+    }
+    
+    return formatDistance(totalDistance);
   };
 
   // 删除路线中的单个点并重新规划
@@ -1537,26 +1718,26 @@ interface TrackRoute {
         {/* 控制面板 */}
         <div className="control-panel">
         <div className="color-selector">
-          <label>选择颜色:</label>
           <div className="color-options">
             {colorOptions.map(color => (
-              <div
-                key={color}
-                className={`color-option ${selectedColor === color ? 'selected' : ''}`}
-                onClick={() => setSelectedColor(color)}
-                style={{ backgroundColor: color }}
-              />
+                              <div
+                  key={color}
+                  className={`color-option ${selectedColor === color ? 'selected' : ''}`}
+                  onClick={() => setSelectedColor(color)}
+                  style={{ backgroundColor: color }}
+                  title={`选择 ${color} 作为路线颜色`}
+                />
             ))}
           </div>
         </div>
 
         {/* 路径类型选择 */}
         <div className="route-type-selector">
-          <label>导航类型:</label>
           <select 
             value={routeType} 
             onChange={(e) => setRouteType(e.target.value as 'driving' | 'walking' | 'riding')}
             className="route-type-select"
+            title="选择导航类型：驾车路线会避开步行道，步行路线可穿过小径，骑行路线会选择适合自行车的道路"
           >
             <option value="driving">🚗 驾车</option>
             <option value="walking">🚶 步行</option>
@@ -1573,13 +1754,15 @@ interface TrackRoute {
               <button
                 onClick={startDrawing}
                 className="btn btn-success"
+                title="开始绘制新路线：进入绘制模式，可以通过点击地图或搜索地点来添加轨迹点"
               >
-                开始绘制
+                开始规划
               </button>
             ) : (
               <button
                 onClick={stopDrawing}
                 className="btn btn-danger"
+                title="完成当前路线绘制：保存当前路线到路线列表，退出绘制模式"
               >
                 完成绘制
               </button>
@@ -1591,6 +1774,7 @@ interface TrackRoute {
             <button
               onClick={startBatchMode}
               className="btn btn-warning batch-mode-btn"
+              title="批量规划模式：一次性添加多个地点，系统会按顺序自动规划最优路径"
             >
               批量规划
             </button>
@@ -1610,6 +1794,7 @@ interface TrackRoute {
                 "地址搜索"
               }
               className="search-input"
+              title="地点搜索：输入地点名称、地址或关键词，支持全国范围搜索，选择结果后会自动添加到路线中"
             />
             
             {isSearching && (
@@ -1635,17 +1820,17 @@ interface TrackRoute {
           </div>
         )}
 
-        {routes.length > 0 && (
+        {/* {routes.length > 0 && (
           <div className="storage-status">
             💾 已保存 {routes.length} 条路线到本地存储
           </div>
-        )}
+        )} */}
 
         {isRoutePlanning && (
           <div className="planning-status">
-            <div className="planning-spinner">⏳</div>
+            <span className="planning-spinner">⏳</span>
             <span>{planningProgress}</span>
-            <div className="planning-hint">请稍候，正在控制请求频率以避免API限制...</div>
+            {/* <span className="planning-hint">请稍候，正在控制请求频率以避免API限制...</span> */}
           </div>
         )}
 
@@ -1654,22 +1839,31 @@ interface TrackRoute {
             <div className="drawing-status">
               绘制模式：点击地图或搜索地点添加轨迹点 (已添加 {currentRoute.points.length} 个点)
             </div>
-            <div className="road-point-hint">
+            <div 
+              className="road-point-hint"
+              title="智能道路吸附功能：点击地图时会自动找到最近的道路点，确保路线规划更加准确和实用"
+            >
               🛣️ 系统会自动将点击位置转换为最近的道路点，确保路径规划准确
             </div>
             {currentRoute.points.length > 0 && (
-              <div className="drag-hint">
+              <div 
+                className="drag-hint"
+                title="交互功能说明：拖拽任意轨迹点可以实时调整路线，系统会自动重新计算最优路径"
+              >
                 💡 提示：可以拖拽轨迹点来调整位置，系统会自动重新规划路径
               </div>
             )}
           </div>
         )}
 
-        {!isDrawing && routes.length > 0 && !batchMode && (
-          <div className="drag-hint">
-            💡 提示：可以拖拽任意轨迹点来调整路线，点击路径线可以更改颜色，切换路线会自动调整地图视窗
+        {/* {!isDrawing && routes.length > 0 && !batchMode && (
+          <div 
+            className="drag-hint"
+            title="操作指南：拖拽轨迹点调整路线 | 点击路径线更改颜色 | 切换路线时会自动调整地图视窗到最佳位置"
+          >
+            💡
           </div>
-        )}
+        )} */}
 
         {batchMode && (
           <div className="batch-mode-status">
@@ -1679,7 +1873,10 @@ interface TrackRoute {
                 退出批量模式
               </button>
             </div>
-            <div className="batch-hint">
+            <div 
+              className="batch-hint"
+              title="批量规划使用方法：1.搜索地点 2.点击添加到列表 3.调整顺序 4.点击创建路线自动规划最优路径"
+            >
               搜索并点击地点添加到列表，然后点击"创建路线"按顺序规划路径
             </div>
           </div>
@@ -1802,7 +1999,10 @@ interface TrackRoute {
                 </div>
 
                 {currentRoute.points.length === 0 ? (
-                  <div className="drawing-hint">
+                  <div 
+                    className="drawing-hint"
+                    title="开始绘制路线：点击地图任意位置或使用搜索功能添加轨迹点，系统会智能吸附到最近的道路"
+                  >
                     <p>点击地图或搜索地点开始添加轨迹点</p>
                     <p className="hint-detail">系统会自动将位置转换为最近的道路点</p>
                   </div>
@@ -1872,14 +2072,12 @@ interface TrackRoute {
                           key={route.id}
                           className={`route-tab ${currentDetailRoute?.id === route.id ? 'active' : ''}`}
                           onClick={() => selectRouteDetail(route)}
+                          style={{ borderLeftColor: route.color }}
                         >
-                          <div
-                            className="route-tab-color"
-                            style={{ backgroundColor: route.color }}
-                          />
                           <div className="route-tab-info">
                             <span className="route-tab-name">{route.name}</span>
                             <span className="route-tab-count">{route.points.length} 个点</span>
+                            <span className="route-tab-distance">{calculateTotalDistance(route)}</span>
                           </div>
                           <div className="route-tab-type">
                             {route.routeType === 'driving' ? '🚗' : 
@@ -1950,10 +2148,14 @@ interface TrackRoute {
                       </div>
                       <div className="route-stats">
                         <span className="point-count">共 {currentDetailRoute.points.length} 个点</span>
+                        <span className="total-distance">总距离: {calculateTotalDistance(currentDetailRoute)}</span>
                       </div>
                     </div>
 
-                    <div className="timeline-hint">
+                    <div 
+                      className="timeline-hint"
+                      title="路线编辑功能：使用上下箭头调整点的顺序，点击×删除不需要的点，系统会实时重新规划最优路径"
+                    >
                       💡 可以调整顺序或删除点，系统会自动重新规划路径
                     </div>
 
@@ -1967,7 +2169,12 @@ interface TrackRoute {
                                index + 1}
                             </div>
                             {index < currentDetailRoute.points.length - 1 && (
-                              <div className="timeline-line" style={{ borderColor: currentDetailRoute.color }}></div>
+                              <div className="timeline-connector">
+                                <div className="timeline-line" style={{ borderColor: currentDetailRoute.color }}></div>
+                                <div className="distance-label">
+                                  {formatDistance(calculateDistance(currentDetailRoute.points[index], currentDetailRoute.points[index + 1]))}
+                                </div>
+                              </div>
                             )}
                           </div>
                           <div className="timeline-content">

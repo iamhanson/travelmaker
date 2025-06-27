@@ -3,6 +3,7 @@
   display: flex;
   flex-direction: column;
   padding: 0;
+  position: relative; // 为悬浮的control-panel提供定位基准
 
   .header {
     padding: 20px;
@@ -47,12 +48,16 @@
   }
 
   .control-panel {
-    margin-bottom: 10px;
+    position: absolute;
+    top: 20px;
+    left: 20px;
+    right: 340px; // 为右侧路线面板留出空间 (300px宽度 + 20px间距 + 20px边距)
+    z-index: 1000;
     padding: 15px;
-    background-color: #f8f9fa;
-    border-radius: 8px;
-    margin-left: 20px;
-    margin-right: 20px;
+    background-color: rgba(248, 249, 250, 0.55); // 半透明背景
+   
+    box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     display: flex;
     flex-wrap: wrap;
     gap: 15px;
@@ -60,24 +65,25 @@
 
     .color-selector {
       label {
-        margin-right: 10px;
+        margin-right: 8px;
+        font-size: 13px; // 减小标签字体
       }
 
       .color-options {
         display: flex;
-        gap: 5px;
+        gap: 3px; // 减小间距
       }
 
       .color-option {
-        width: 30px;
-        height: 30px;
+        width: 20px; // 从30px减小到20px
+        height: 20px;
         border-radius: 50%;
         cursor: pointer;
-        border: 2px solid #ddd;
+        border: 1px solid #ddd; // 减小边框宽度
         transition: transform 0.2s;
 
         &.selected {
-          border: 3px solid #333;
+          border: 2px solid #333; // 减小选中时的边框
           transform: scale(1.1);
         }
 
@@ -144,7 +150,7 @@
         top: 100%;
         left: 0;
         right: 0;
-        z-index: 1000;
+        z-index: 1001; // 确保高于control-panel
         background-color: white;
         border: 1px solid #ddd;
         border-radius: 6px;
@@ -167,7 +173,7 @@
         border: 1px solid #ddd;
         border-radius: 6px;
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-        z-index: 1000;
+        z-index: 1001; // 确保高于control-panel
         margin-top: 4px;
 
         .suggestion-item {
@@ -283,24 +289,25 @@
       background-color: #e3f2fd;
       border: 1px solid #bbdefb;
       border-radius: 6px;
-      padding: 12px;
-      margin-top: 10px;
+      padding: 8px 12px; // 减小垂直内边距
       display: flex;
-      flex-direction: column;
-      gap: 5px;
-      font-size: 14px;
+      flex-direction: row; // 改为水平排列
+      align-items: center; // 垂直居中对齐
+      gap: 8px; // 调整间距
+      font-size: 13px; // 稍微减小字体
       color: #1976d2;
-      text-align: center;
+      white-space: nowrap; // 防止换行
 
       .planning-spinner {
-        font-size: 16px;
+        font-size: 14px; // 稍微减小spinner大小
         animation: spin 1s linear infinite;
+        flex-shrink: 0; // 防止收缩
       }
 
       .planning-hint {
-        font-size: 12px;
+        font-size: 11px; // 减小提示文字
         color: #666;
-        margin-top: 4px;
+        flex-shrink: 0; // 防止收缩
       }
     }
 
@@ -367,7 +374,8 @@
     display: flex;
     gap: 20px;
     flex: 1;
-    padding: 0 20px 20px 20px;
+    padding: 20px;
+    height: 100vh; // 占满整个视窗高度
 
     .map-container {
       flex: 1;
@@ -876,83 +884,55 @@
       .route-tabs {
         display: flex;
         flex-direction: column;
-        gap: 8px;
-        max-height: 200px;
-        overflow-y: auto;
-        scrollbar-width: thin;
-        scrollbar-color: #cbd5e0 #f1f5f9;
-
-        &::-webkit-scrollbar {
-          width: 6px;
-        }
-
-        &::-webkit-scrollbar-track {
-          background: #f1f5f9;
-          border-radius: 3px;
-        }
-
-        &::-webkit-scrollbar-thumb {
-          background: #cbd5e0;
-          border-radius: 3px;
-
-          &:hover {
-            background: #a0aec0;
-          }
-        }
+        gap: 4px; // 减小间距
+        // 移除max-height和overflow-y，让高度自适应内容
 
         .route-tab {
           display: flex;
           align-items: center;
-          padding: 12px 15px;
-          border: 2px solid #e2e8f0;
-          border-radius: 8px;
+          padding: 8px 12px; // 减小内边距
+          border: 1px solid #e2e8f0; // 减细边框
+          border-left: 5px solid #e2e8f0; // 默认左边框，会被内联样式覆盖
+          border-radius: 6px; // 减小圆角
           background: white;
           cursor: pointer;
           transition: all 0.2s ease;
           position: relative;
+          margin-bottom: 6px; // 减小间距
 
           &:hover {
             border-color: #667eea;
             background: #f7fafc;
             transform: translateY(-1px);
-            box-shadow: 0 2px 8px rgba(102, 126, 234, 0.15);
+            box-shadow: 0 1px 4px rgba(102, 126, 234, 0.1); // 减淡阴影
           }
 
           &.active {
-            border-color: #667eea;
-            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-            color: white;
-            box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
-
-            .route-tab-color {
-              border: 2px solid white;
-            }
+            border-color: #007bff;
+            background: #f8f9fa; // 改为浅色背景，不使用渐变
+            color: #333; // 保持深色文字
+            box-shadow: 0 2px 6px rgba(0, 123, 255, 0.15); // 减淡阴影
 
             .route-tab-info {
               .route-tab-name {
-                color: white;
+                color: #333; // 保持深色文字
                 font-weight: 600;
               }
 
               .route-tab-count {
-                color: rgba(255, 255, 255, 0.8);
+                color: #666; // 保持可读的灰色
+              }
+
+              .route-tab-distance {
+                color: #007bff; // 蓝色距离文字
+                font-weight: 700;
               }
             }
 
             .route-tab-type {
-              background: rgba(255, 255, 255, 0.2);
-              backdrop-filter: blur(10px);
+              background: #e3f2fd; // 浅蓝色背景
+              color: #1976d2;
             }
-          }
-
-          .route-tab-color {
-            width: 16px;
-            height: 16px;
-            border-radius: 50%;
-            margin-right: 12px;
-            border: 2px solid #e2e8f0;
-            flex-shrink: 0;
-            transition: border-color 0.2s ease;
           }
 
           .route-tab-info {
@@ -963,31 +943,40 @@
               display: block;
               font-weight: 500;
               color: #2d3748;
-              margin-bottom: 2px;
+              margin-bottom: 1px; // 减小间距
               white-space: nowrap;
               overflow: hidden;
               text-overflow: ellipsis;
               transition: color 0.2s ease;
+              font-size: 13px; // 稍微减小字体
             }
 
             .route-tab-count {
-              display: block;
-              font-size: 12px;
+              display: inline-block; // 改为行内显示
+              font-size: 11px; // 减小字体
               color: #718096;
               transition: color 0.2s ease;
+              margin-right: 8px;
+            }
+
+            .route-tab-distance {
+              display: inline-block; // 改为行内显示，与点数在同一行
+              font-size: 11px;
+              color: #007bff;
+              font-weight: 600;
             }
           }
 
           .route-tab-type {
-            width: 28px;
-            height: 28px;
-            border-radius: 6px;
+            width: 22px; // 减小尺寸
+            height: 22px;
+            border-radius: 4px; // 减小圆角
             background: #f7fafc;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 14px;
-            margin-left: 8px;
+            font-size: 12px; // 减小字体
+            margin-left: 6px; // 减小间距
             transition: background 0.2s ease;
           }
         }
@@ -1000,117 +989,123 @@
         padding: 15px;
         border-radius: 8px;
         margin-bottom: 20px;
-        border-left: 4px solid #667eea;
 
-                 .route-title {
-           display: flex;
-           align-items: center;
-           gap: 10px;
-           margin-bottom: 8px;
+        .route-title {
+          display: flex;
+          align-items: center;
+          gap: 10px;
+          margin-bottom: 8px;
 
-           .route-color-indicator {
-             width: 16px;
-             height: 16px;
-             border-radius: 50%;
-             flex-shrink: 0;
-           }
+          .route-color-indicator {
+            width: 16px;
+            height: 16px;
+            border-radius: 50%;
+            flex-shrink: 0;
+          }
 
-           .route-name-display {
-             display: flex;
-             align-items: center;
-             gap: 8px;
-             flex: 1;
+          .route-name-display {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            flex: 1;
 
-             .route-name {
-               font-weight: 600;
-               color: #333;
-             }
+            .route-name {
+              font-weight: 600;
+              color: #333;
+            }
 
-             .edit-name-btn {
-               background: none;
-               border: none;
-               cursor: pointer;
-               font-size: 14px;
-               opacity: 0.6;
-               transition: opacity 0.2s ease;
+            .edit-name-btn {
+              background: none;
+              border: none;
+              cursor: pointer;
+              font-size: 14px;
+              opacity: 0.6;
+              transition: opacity 0.2s ease;
 
-               &:hover {
-                 opacity: 1;
-               }
-             }
-           }
+              &:hover {
+                opacity: 1;
+              }
+            }
+          }
 
-           .route-name-editor {
-             display: flex;
-             align-items: center;
-             gap: 6px;
-             flex: 1;
+          .route-name-editor {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            flex: 1;
 
-             .route-name-input {
-               flex: 1;
-               padding: 4px 8px;
-               border: 1px solid #ddd;
-               border-radius: 4px;
-               font-size: 14px;
-               font-weight: 600;
-               color: #333;
+            .route-name-input {
+              flex: 1;
+              padding: 4px 8px;
+              border: 1px solid #ddd;
+              border-radius: 4px;
+              font-size: 14px;
+              font-weight: 600;
+              color: #333;
 
-               &:focus {
-                 outline: none;
-                 border-color: #667eea;
-                 box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
-               }
-             }
+              &:focus {
+                outline: none;
+                border-color: #667eea;
+                box-shadow: 0 0 0 2px rgba(102, 126, 234, 0.1);
+              }
+            }
 
-             .btn-tiny {
-               &.btn-secondary {
-                 background: #6c757d;
-                 color: white;
+            .btn-tiny {
+              &.btn-secondary {
+                background: #6c757d;
+                color: white;
 
-                 &:hover {
-                   background: #5a6268;
-                 }
-               }
-             }
-           }
+                &:hover {
+                  background: #5a6268;
+                }
+              }
+            }
+          }
 
-           .route-type-badge {
-             background: #e9ecef;
-             padding: 4px 8px;
-             border-radius: 12px;
-             font-size: 12px;
-             color: #666;
-           }
-         }
+          .route-type-badge {
+            background: #e9ecef;
+            padding: 4px 8px;
+            border-radius: 12px;
+            font-size: 12px;
+            color: #666;
+          }
+        }
 
         .route-stats {
+          display: flex;
+          gap: 15px;
           font-size: 14px;
           color: #666;
 
           .point-count {
             font-weight: 500;
           }
+
+          .total-distance {
+            font-weight: 600;
+            color: #007bff;
+          }
         }
       }
 
-             .timeline-hint {
-         background: #e8f4fd;
-         color: #0c5460;
-         padding: 10px 15px;
-         border-radius: 6px;
-         font-size: 13px;
-         margin-bottom: 15px;
-         border-left: 3px solid #17a2b8;
-       }
+      .timeline-hint {
+        background: #e8f4fd;
+        color: #0c5460;
+        padding: 10px 15px;
+        border-radius: 6px;
+        font-size: 13px;
+        margin-bottom: 15px;
+        border-left: 3px solid #17a2b8;
+      }
 
-       .timeline-container {
-         position: relative;
-         padding-left: 0;
-       }
+      .timeline-container {
+        position: relative;
+        padding-left: 0;
+      }
 
       .timeline-item {
         display: flex;
-        margin-bottom: 20px;
+        margin-bottom: 5px;
         position: relative;
 
         &:last-child {
@@ -1140,129 +1135,158 @@
             position: relative;
           }
 
-          .timeline-line {
-            width: 2px;
-            height: 40px;
-            border-left: 2px dashed #ddd;
+          .timeline-connector {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
             margin-top: 5px;
+            position: relative;
+            height: 60px; // 设置固定高度确保连接线有足够空间
+
+            .timeline-line {
+              width: 2px;
+              height: 100%; // 让连接线占满整个连接器高度
+              border-left: 2px dashed #ddd;
+              position: absolute;
+              top: 0;
+              left: 50%;
+              transform: translateX(-50%);
+            }
+
+            .distance-label {
+              background: #f8f9fa;
+              border: 1px solid #e9ecef;
+              border-radius: 12px;
+              padding: 2px 8px;
+              font-size: 10px;
+              color: #007bff;
+              font-weight: 600;
+              white-space: nowrap;
+              box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
+              position: absolute;
+              top: 50%;
+              left: 50%;
+              transform: translate(-50%, -50%);
+              z-index: 1; // 确保距离标签在连接线之上
+            }
           }
         }
 
-                 .timeline-content {
-           flex: 1;
-           padding-top: 5px;
+        .timeline-content {
+          flex: 1;
+          padding-top: 5px;
 
-           .point-header {
-             display: flex;
-             justify-content: space-between;
-             align-items: flex-start;
-             margin-bottom: 8px;
+          .point-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 8px;
 
-             .point-info {
-               flex: 1;
+            .point-info {
+              flex: 1;
 
-               .point-name {
-                 font-weight: 600;
-                 color: #333;
-                 margin-bottom: 4px;
-                 font-size: 15px;
-               }
+              .point-name {
+                font-weight: 600;
+                color: #333;
+                margin-bottom: 4px;
+                font-size: 15px;
+              }
 
-               .point-coordinates {
-                 font-size: 12px;
-                 color: #888;
-                 font-family: monospace;
-               }
-             }
+              .point-coordinates {
+                font-size: 12px;
+                color: #888;
+                font-family: monospace;
+              }
+            }
 
-             .point-actions {
-               display: flex;
-               gap: 4px;
-               margin-left: 10px;
-               flex-shrink: 0;
+            .point-actions {
+              display: flex;
+              gap: 4px;
+              margin-left: 10px;
+              flex-shrink: 0;
 
-               .move-point-btn {
-                 background: #667eea;
-                 color: white;
-                 border: none;
-                 border-radius: 4px;
-                 width: 20px;
-                 height: 20px;
-                 font-size: 12px;
-                 font-weight: bold;
-                 cursor: pointer;
-                 display: flex;
-                 align-items: center;
-                 justify-content: center;
-                 transition: all 0.2s ease;
-                 opacity: 0.8;
+              .move-point-btn {
+                background: #667eea;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                width: 20px;
+                height: 20px;
+                font-size: 12px;
+                font-weight: bold;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+                opacity: 0.8;
 
-                 &:hover {
-                   opacity: 1;
-                   background: #5a67d8;
-                   transform: scale(1.05);
-                 }
+                &:hover {
+                  opacity: 1;
+                  background: #5a67d8;
+                  transform: scale(1.05);
+                }
 
-                 &:active {
-                   transform: scale(0.95);
-                 }
-               }
+                &:active {
+                  transform: scale(0.95);
+                }
+              }
 
-               .delete-point-btn {
-                 background: #ff4757;
-                 color: white;
-                 border: none;
-                 border-radius: 50%;
-                 width: 20px;
-                 height: 20px;
-                 font-size: 14px;
-                 font-weight: bold;
-                 cursor: pointer;
-                 display: flex;
-                 align-items: center;
-                 justify-content: center;
-                 transition: all 0.2s ease;
-                 opacity: 0.7;
+              .delete-point-btn {
+                background: #ff4757;
+                color: white;
+                border: none;
+                border-radius: 50%;
+                width: 20px;
+                height: 20px;
+                font-size: 14px;
+                font-weight: bold;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                transition: all 0.2s ease;
+                opacity: 0.7;
 
-                 &:hover {
-                   opacity: 1;
-                   background: #ff3742;
-                   transform: scale(1.1);
-                 }
+                &:hover {
+                  opacity: 1;
+                  background: #ff3742;
+                  transform: scale(1.1);
+                }
 
-                 &:active {
-                   transform: scale(0.95);
-                 }
-               }
-             }
-           }
+                &:active {
+                  transform: scale(0.95);
+                }
+              }
+            }
+          }
 
-           .point-labels {
-             .point-label {
-               display: inline-block;
-               padding: 2px 8px;
-               border-radius: 10px;
-               font-size: 11px;
-               font-weight: 500;
-               margin-right: 6px;
+          .point-labels {
+            .point-label {
+              display: inline-block;
+              padding: 2px 8px;
+              border-radius: 10px;
+              font-size: 11px;
+              font-weight: 500;
+              margin-right: 6px;
 
-               &.start-label {
-                 background: #d4edda;
-                 color: #155724;
-               }
+              &.start-label {
+                background: #d4edda;
+                color: #155724;
+              }
 
-               &.end-label {
-                 background: #f8d7da;
-                 color: #721c24;
-               }
+              &.end-label {
+                background: #f8d7da;
+                color: #721c24;
+              }
 
-               &.waypoint-label {
-                 background: #e2e3e5;
-                 color: #495057;
-               }
-             }
-           }
-         }
+              &.waypoint-label {
+                background: #e2e3e5;
+                color: #495057;
+              }
+            }
+          }
+        }
       }
 
       .route-actions-panel {
