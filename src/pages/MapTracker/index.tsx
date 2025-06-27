@@ -19,6 +19,14 @@ interface TrackRoute {
   routeType?: 'driving' | 'walking' | 'riding';
 }
 
+interface TravelPlan {
+  id: string;
+  name: string;
+  routes: TrackRoute[];
+  createdAt: Date;
+  updatedAt: Date;
+}
+
   const MapTracker: React.FC = () => {
     const mapContainer = useRef<HTMLDivElement>(null);
       const mapRef = useRef<any>(null);
@@ -33,6 +41,8 @@ interface TrackRoute {
     const [locationInput, setLocationInput] = useState('');
     const [searchSuggestions, setSearchSuggestions] = useState<any[]>([]);
     const [isSearching, setIsSearching] = useState(false);
+  const [travelPlans, setTravelPlans] = useState<TravelPlan[]>([]);
+  const [currentPlanId, setCurrentPlanId] = useState<string>('');
   const [routes, setRoutes] = useState<TrackRoute[]>([]);
   const [currentRoute, setCurrentRoute] = useState<TrackRoute>({
     id: Date.now().toString(),
@@ -50,8 +60,11 @@ interface TrackRoute {
   const [selectedLocations, setSelectedLocations] = useState<any[]>([]);
   const [showBatchPanel, setShowBatchPanel] = useState(false);
   const [currentDetailRoute, setCurrentDetailRoute] = useState<TrackRoute | null>(null);
+  const [expandedRouteId, setExpandedRouteId] = useState<string | null>(null);
   const [editingRouteName, setEditingRouteName] = useState<string | null>(null);
   const [tempRouteName, setTempRouteName] = useState<string>('');
+  const [editingPlanName, setEditingPlanName] = useState<string | null>(null);
+  const [tempPlanName, setTempPlanName] = useState<string>('');
   const [isRoutePlanning, setIsRoutePlanning] = useState(false);
   const [planningProgress, setPlanningProgress] = useState<string>('');
 
@@ -71,46 +84,90 @@ interface TrackRoute {
     '#8e44ad'  // 深紫色
   ];
 
-  // localStorage 工具函数
-  const saveRoutesToStorage = (routesToSave: TrackRoute[]) => {
+  // localStorage 工具函数 - 方案管理
+  const savePlansToStorage = (plansToSave: TravelPlan[]) => {
     try {
-      const routesData = routesToSave.map(route => ({
-        id: route.id,
-        name: route.name,
-        points: route.points,
-        color: route.color,
-        routeType: route.routeType
+      const plansData = plansToSave.map(plan => ({
+        id: plan.id,
+        name: plan.name,
+        createdAt: plan.createdAt.toISOString(),
+        updatedAt: plan.updatedAt.toISOString(),
+        routes: plan.routes.map(route => ({
+          id: route.id,
+          name: route.name,
+          points: route.points,
+          color: route.color,
+          routeType: route.routeType
+        }))
       }));
-      localStorage.setItem('mapTracker_routes', JSON.stringify(routesData));
-      console.log('路线已保存到localStorage:', routesData.length, '条路线');
+      localStorage.setItem('mapTracker_plans', JSON.stringify(plansData));
+      console.log('方案已保存到localStorage:', plansData.length, '个方案');
     } catch (error) {
-      console.error('保存路线到localStorage失败:', error);
+      console.error('保存方案到localStorage失败:', error);
     }
   };
 
-  const loadRoutesFromStorage = (): TrackRoute[] => {
+  const loadPlansFromStorage = (): TravelPlan[] => {
     try {
-      const stored = localStorage.getItem('mapTracker_routes');
+      const stored = localStorage.getItem('mapTracker_plans');
       if (stored) {
-        const routesData = JSON.parse(stored);
-        const loadedRoutes = routesData.map((data: any) => ({
+        const plansData = JSON.parse(stored);
+        const loadedPlans = plansData.map((data: any) => ({
           ...data,
-          markers: [], // 重新初始化markers
-          polyline: null // 重新初始化polyline
+          createdAt: new Date(data.createdAt),
+          updatedAt: new Date(data.updatedAt),
+          routes: data.routes.map((route: any) => ({
+            ...route,
+            markers: [], // 重新初始化markers
+            polyline: null // 重新初始化polyline
+          }))
         }));
-        console.log('从localStorage加载路线:', loadedRoutes.length, '条路线');
-        return loadedRoutes;
+        console.log('从localStorage加载方案:', loadedPlans.length, '个方案');
+        return loadedPlans;
       }
     } catch (error) {
-      console.error('从localStorage加载路线失败:', error);
+      console.error('从localStorage加载方案失败:', error);
     }
     return [];
   };
 
-  const clearRoutesStorage = () => {
+  const migrateOldRoutesToPlan = (): TravelPlan | null => {
     try {
-      localStorage.removeItem('mapTracker_routes');
-      console.log('已清除localStorage中的路线数据');
+      const oldRoutes = localStorage.getItem('mapTracker_routes');
+      if (oldRoutes) {
+        const routesData = JSON.parse(oldRoutes);
+        const loadedRoutes = routesData.map((data: any) => ({
+          ...data,
+          markers: [],
+          polyline: null
+        }));
+        
+        if (loadedRoutes.length > 0) {
+          const firstPlan: TravelPlan = {
+            id: 'plan_1',
+            name: '方案一',
+            routes: loadedRoutes,
+            createdAt: new Date(),
+            updatedAt: new Date()
+          };
+          
+          // 清除旧的路线数据
+          localStorage.removeItem('mapTracker_routes');
+          console.log('已迁移旧路线数据到第一个方案');
+          return firstPlan;
+        }
+      }
+    } catch (error) {
+      console.error('迁移旧路线数据失败:', error);
+    }
+    return null;
+  };
+
+  const clearPlansStorage = () => {
+    try {
+      localStorage.removeItem('mapTracker_plans');
+      localStorage.removeItem('mapTracker_routes'); // 同时清除旧数据
+      console.log('已清除localStorage中的方案数据');
     } catch (error) {
       console.error('清除localStorage失败:', error);
     }
@@ -119,19 +176,53 @@ interface TrackRoute {
   useEffect(() => {
     initMap();
     
-    // 加载保存的路线
-    const savedRoutes = loadRoutesFromStorage();
-    if (savedRoutes.length > 0) {
-      setRoutes(savedRoutes);
+    // 初始化方案数据
+    let loadedPlans = loadPlansFromStorage();
+    
+    // 如果没有方案数据，尝试迁移旧的路线数据
+    if (loadedPlans.length === 0) {
+      const migratedPlan = migrateOldRoutesToPlan();
+      if (migratedPlan) {
+        loadedPlans = [migratedPlan];
+      }
     }
+    
+    // 如果还是没有数据，创建一个默认方案
+    if (loadedPlans.length === 0) {
+      const defaultPlan: TravelPlan = {
+        id: 'plan_1',
+        name: '方案一',
+        routes: [],
+        createdAt: new Date(),
+        updatedAt: new Date()
+      };
+      loadedPlans = [defaultPlan];
+    }
+    
+    setTravelPlans(loadedPlans);
+    setCurrentPlanId(loadedPlans[0].id);
+    setRoutes(loadedPlans[0].routes);
   }, []);
 
   // 监听路线变化，自动保存到localStorage
   useEffect(() => {
-    if (routes.length > 0) {
-      saveRoutesToStorage(routes);
+    if (routes.length >= 0 && currentPlanId && travelPlans.length > 0) {
+      // 更新当前方案的路线
+      const updatedPlans = travelPlans.map(plan => {
+        if (plan.id === currentPlanId) {
+          return {
+            ...plan,
+            routes: routes,
+            updatedAt: new Date()
+          };
+        }
+        return plan;
+      });
+      
+      setTravelPlans(updatedPlans);
+      savePlansToStorage(updatedPlans);
     }
-  }, [routes]);
+  }, [routes, currentPlanId]);
 
   // 当路线列表变化时的处理逻辑
   useEffect(() => {
@@ -156,7 +247,7 @@ interface TrackRoute {
   // 地图加载完成后，重新绘制保存的路线
   useEffect(() => {
     if (map && AMap && routes.length > 0) {
-      console.log('地图加载完成，重新绘制保存的路线:', routes.length, '条');
+      console.log('地图或路线变化，绘制路线:', routes.length, '条');
       routes.forEach(route => {
         if (route.points.length >= 2) {
           updateRouteOnMap(route);
@@ -175,7 +266,10 @@ interface TrackRoute {
         }
       }, 500); // 延迟执行，确保路线绘制完成
     }
-  }, [map, AMap]);
+  }, [map, AMap, routes]); // 正确依赖routes，避免使用过期的routes值
+
+  // 移除重复的useEffect，避免重复调用updateRouteOnMap
+  // 新路线的绘制应该在具体的操作函数中处理（如stopDrawing、createBatchRoute等）
 
   // 监听当前详情路线变化，自动调整视窗（仅在选中路线时）
   useEffect(() => {
@@ -781,20 +875,22 @@ interface TrackRoute {
     }
 
     isProcessingQueueRef.current = true;
-    const totalTasks = routePlanningQueueRef.current.length;
-    console.log('开始处理路径规划队列，队列长度:', totalTasks);
-    
     setIsRoutePlanning(true);
-    setPlanningProgress(`正在规划路径... (0/${totalTasks})`);
-
+    
     let completedTasks = 0;
+    
+    // 动态计算总任务数，包括处理过程中可能添加的新任务
     while (routePlanningQueueRef.current.length > 0) {
+      const currentTotalTasks = completedTasks + routePlanningQueueRef.current.length;
+      console.log(`处理路径规划队列，当前队列长度: ${routePlanningQueueRef.current.length}, 总任务数: ${currentTotalTasks}`);
+      
+      setPlanningProgress(`正在规划路径段 ${completedTasks + 1}/${currentTotalTasks}...`);
+      
       const task = routePlanningQueueRef.current.shift();
       if (task) {
         try {
           await task();
           completedTasks++;
-          setPlanningProgress(`正在规划路径... (${completedTasks}/${totalTasks})`);
           
           // 限制频率：每500ms处理一个请求（2次/秒）
           if (routePlanningQueueRef.current.length > 0) {
@@ -803,7 +899,6 @@ interface TrackRoute {
         } catch (error) {
           console.error('队列任务执行失败:', error);
           completedTasks++;
-          setPlanningProgress(`正在规划路径... (${completedTasks}/${totalTasks})`);
         }
       }
     }
@@ -811,7 +906,7 @@ interface TrackRoute {
     isProcessingQueueRef.current = false;
     setIsRoutePlanning(false);
     setPlanningProgress('');
-    console.log('路径规划队列处理完成');
+    console.log(`路径规划队列处理完成，共完成 ${completedTasks} 个任务`);
   };
 
   // 添加路径规划任务到队列
@@ -1029,6 +1124,11 @@ interface TrackRoute {
       setRoutes(prev => [...prev, newRoute]);
       // 移除自动选中新路线的逻辑，保持默认不选中状态
       
+      // 在地图上绘制新路线
+      if (newRoute.points.length >= 2) {
+        updateRouteOnMap(newRoute);
+      }
+      
       // 自动调整视窗以显示新创建的路线（即使没有选中）
       setTimeout(() => {
         console.log('新路线创建完成，调整视窗显示新路线:', newRoute.name);
@@ -1072,7 +1172,7 @@ interface TrackRoute {
     isDrawingRef.current = false;
     
     // 清除localStorage
-    clearRoutesStorage();
+    clearPlansStorage();
     
     console.log('已清除所有路线和保存数据');
   };
@@ -1324,21 +1424,21 @@ interface TrackRoute {
     console.log('批量路线创建完成');
   };
 
-  // 选择路线详情 - 支持切换选中/取消选中
-  const selectRouteDetail = (route: TrackRoute) => {
-    // 如果点击的是当前已选中的路线，则取消选中
-    if (currentDetailRoute && currentDetailRoute.id === route.id) {
-      console.log('取消选中路线:', route.name);
+  // 展开/折叠路线详情
+  const toggleRouteExpansion = (route: TrackRoute) => {
+    // 如果点击的是当前已展开的路线，则折叠
+    if (expandedRouteId === route.id) {
+      console.log('折叠路线:', route.name);
+      setExpandedRouteId(null);
       setCurrentDetailRoute(null);
       resetRouteOpacity(); // 重置所有路线透明度
     } else {
-      // 选中新的路线
-      console.log('选择路线详情:', route.name);
+      // 展开新的路线
+      console.log('展开路线详情:', route.name);
+      setExpandedRouteId(route.id);
       setCurrentDetailRoute(route);
       highlightSelectedRoute(route.id); // 高亮选中的路线，降低其他路线透明度
     }
-    
-    // 视窗调整在useEffect中自动处理
   };
 
   // 高亮选中的路线
@@ -1656,6 +1756,142 @@ interface TrackRoute {
     setTempRouteName('');
   };
 
+  const startEditPlanName = (planId: string, currentName: string) => {
+    setEditingPlanName(planId);
+    setTempPlanName(currentName);
+  };
+
+  const savePlanName = (planId: string) => {
+    if (tempPlanName.trim() && tempPlanName.trim() !== '') {
+      renamePlan(planId, tempPlanName.trim());
+    }
+    setEditingPlanName(null);
+    setTempPlanName('');
+  };
+
+  const cancelEditPlanName = () => {
+    setEditingPlanName(null);
+    setTempPlanName('');
+  };
+
+  // 方案管理函数
+  const createNewPlan = () => {
+    const newPlan: TravelPlan = {
+      id: `plan_${Date.now()}`,
+      name: `方案${travelPlans.length + 1}`,
+      routes: [],
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+    
+    const updatedPlans = [...travelPlans, newPlan];
+    setTravelPlans(updatedPlans);
+    savePlansToStorage(updatedPlans);
+    
+    // 切换到新方案
+    switchToPlan(newPlan.id);
+    console.log('创建新方案:', newPlan.name);
+  };
+
+  const switchToPlan = (planId: string) => {
+    const targetPlan = travelPlans.find(plan => plan.id === planId);
+    if (targetPlan) {
+      setCurrentPlanId(planId);
+      setRoutes(targetPlan.routes);
+      setCurrentDetailRoute(null); // 清除当前选中的路线详情
+      
+      // 清理地图
+      if (mapRef.current) {
+        mapRef.current.clearMap();
+      }
+      
+      // 路线绘制由useEffect自动处理，这里只需要调整视窗
+      setTimeout(() => {
+        if (targetPlan.routes.length > 0 && targetPlan.routes[0].points.length > 0) {
+          fitRouteToView(targetPlan.routes[0]);
+        }
+      }, 600); // 延迟时间稍长，确保useEffect完成绘制
+      
+      console.log('切换到方案:', targetPlan.name);
+    }
+  };
+
+  const deletePlan = (planId: string) => {
+    if (travelPlans.length <= 1) {
+      alert('至少需要保留一个方案');
+      return;
+    }
+    
+    const planToDelete = travelPlans.find(plan => plan.id === planId);
+    if (!planToDelete) return;
+    
+    const confirmed = window.confirm(`确定要删除方案"${planToDelete.name}"吗？\n\n删除后无法恢复。`);
+    if (!confirmed) return;
+    
+    const updatedPlans = travelPlans.filter(plan => plan.id !== planId);
+    setTravelPlans(updatedPlans);
+    savePlansToStorage(updatedPlans);
+    
+    // 如果删除的是当前方案，切换到第一个方案
+    if (currentPlanId === planId) {
+      switchToPlan(updatedPlans[0].id);
+    }
+    
+    console.log('删除方案:', planToDelete.name);
+  };
+
+  const renamePlan = (planId: string, newName: string) => {
+    if (!newName.trim()) {
+      alert('方案名称不能为空');
+      return;
+    }
+    
+    const updatedPlans = travelPlans.map(plan => {
+      if (plan.id === planId) {
+        return {
+          ...plan,
+          name: newName.trim(),
+          updatedAt: new Date()
+        };
+      }
+      return plan;
+    });
+    
+    setTravelPlans(updatedPlans);
+    savePlansToStorage(updatedPlans);
+    console.log('重命名方案:', newName);
+  };
+
+  const copyPlan = (planId: string) => {
+    const planToCopy = travelPlans.find(plan => plan.id === planId);
+    if (!planToCopy) return;
+
+    const newPlan: TravelPlan = {
+      id: Date.now().toString(),
+      name: `${planToCopy.name} - 副本`,
+      routes: planToCopy.routes.map(route => ({
+        ...route,
+        id: Date.now().toString() + Math.random().toString(36).substr(2, 9),
+        polyline: null, // 重置polyline，会在地图上重新绘制
+        markers: [] // 重置markers，会在地图上重新绘制
+      })),
+      createdAt: new Date(),
+      updatedAt: new Date()
+    };
+
+    const updatedPlans = [...travelPlans, newPlan];
+    setTravelPlans(updatedPlans);
+    savePlansToStorage(updatedPlans);
+    
+    // 自动切换到新复制的方案
+    switchToPlan(newPlan.id);
+    console.log('复制方案:', planToCopy.name, '-> ', newPlan.name);
+  };
+
+  const getCurrentPlan = (): TravelPlan | null => {
+    return travelPlans.find(plan => plan.id === currentPlanId) || null;
+  };
+
   const selectLocation = (poi: any) => {
     if (batchMode) {
       // 批量模式：添加到选中位置列表
@@ -1717,37 +1953,37 @@ interface TrackRoute {
       
         {/* 控制面板 */}
         <div className="control-panel">
-        <div className="color-selector">
-          <div className="color-options">
-            {colorOptions.map(color => (
-                              <div
-                  key={color}
-                  className={`color-option ${selectedColor === color ? 'selected' : ''}`}
-                  onClick={() => setSelectedColor(color)}
-                  style={{ backgroundColor: color }}
-                  title={`选择 ${color} 作为路线颜色`}
-                />
-            ))}
-          </div>
-        </div>
+          {/* 其他控制元素 */}
+          <div className="control-row">
+            <div className="color-selector">
+              <div className="color-options">
+                {colorOptions.map(color => (
+                                  <div
+                      key={color}
+                      className={`color-option ${selectedColor === color ? 'selected' : ''}`}
+                      onClick={() => setSelectedColor(color)}
+                      style={{ backgroundColor: color }}
+                      title={`选择 ${color} 作为路线颜色`}
+                    />
+                ))}
+              </div>
+            </div>
 
-        {/* 路径类型选择 */}
-        <div className="route-type-selector">
-          <select 
-            value={routeType} 
-            onChange={(e) => setRouteType(e.target.value as 'driving' | 'walking' | 'riding')}
-            className="route-type-select"
-            title="选择导航类型：驾车路线会避开步行道，步行路线可穿过小径，骑行路线会选择适合自行车的道路"
-          >
-            <option value="driving">🚗 驾车</option>
-            <option value="walking">🚶 步行</option>
-            <option value="riding">🚴 骑行</option>
-          </select>
-        </div>
+            {/* 路径类型选择 */}
+            <div className="route-type-selector">
+              <select 
+                value={routeType} 
+                onChange={(e) => setRouteType(e.target.value as 'driving' | 'walking' | 'riding')}
+                className="route-type-select"
+                title="选择导航类型：驾车路线会避开步行道，步行路线可穿过小径，骑行路线会选择适合自行车的道路"
+              >
+                <option value="driving">🚗 驾车</option>
+                <option value="walking">🚶 步行</option>
+                <option value="riding">🚴 骑行</option>
+              </select>
+            </div>
 
-
-        
-        <div className="button-group">
+            <div className="button-group">
           {/* 绘制按钮 - 只在非批量模式时显示 */}
           {!batchMode && (
             !isDrawing ? (
@@ -1779,108 +2015,94 @@ interface TrackRoute {
               批量规划
             </button>
           )}
+          </div>
         </div>
 
-        {/* 搜索功能 - 只在绘制模式或批量模式时显示 */}
-        {(isDrawing || batchMode) && (
-          <div className="search-container">
-            <input
-              type="text"
-              value={locationInput}
-              onChange={(e) => handleLocationInputChange(e.target.value)}
-              placeholder={
-                batchMode ? "搜索地点添加到批量列表..." : 
-                isDrawing ? "输入地点名称搜索..." : 
-                "地址搜索"
-              }
-              className="search-input"
-              title="地点搜索：输入地点名称、地址或关键词，支持全国范围搜索，选择结果后会自动添加到路线中"
-            />
-            
-            {isSearching && (
-              <div className="search-loading">
-                搜索中...
-              </div>
-            )}
-            
-            {searchSuggestions.length > 0 && (
-              <div className="search-suggestions">
-                {searchSuggestions.map((poi, index) => (
-                  <div
-                    key={index}
-                    className="suggestion-item"
-                    onClick={() => selectLocation(poi)}
-                  >
-                    <div className="suggestion-name">{poi.name}</div>
-                    <div className="suggestion-address">{poi.address}</div>
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-
-        {/* {routes.length > 0 && (
-          <div className="storage-status">
-            💾 已保存 {routes.length} 条路线到本地存储
-          </div>
-        )} */}
-
-        {isRoutePlanning && (
-          <div className="planning-status">
-            <span className="planning-spinner">⏳</span>
-            <span>{planningProgress}</span>
-            {/* <span className="planning-hint">请稍候，正在控制请求频率以避免API限制...</span> */}
-          </div>
-        )}
-
-        {isDrawing && (
-          <div>
-            <div className="drawing-status">
-              绘制模式：点击地图或搜索地点添加轨迹点 (已添加 {currentRoute.points.length} 个点)
+          {/* 搜索功能 - 只在绘制模式或批量模式时显示 */}
+          {(isDrawing || batchMode) && (
+            <div className="search-container">
+              <input
+                type="text"
+                value={locationInput}
+                onChange={(e) => handleLocationInputChange(e.target.value)}
+                placeholder={
+                  batchMode ? "搜索地点添加到批量列表..." : 
+                  isDrawing ? "输入地点名称搜索..." : 
+                  "地址搜索"
+                }
+                className="search-input"
+                title="地点搜索：输入地点名称、地址或关键词，支持全国范围搜索，选择结果后会自动添加到路线中"
+              />
+              
+              {isSearching && (
+                <div className="search-loading">
+                  搜索中...
+                </div>
+              )}
+              
+              {searchSuggestions.length > 0 && (
+                <div className="search-suggestions">
+                  {searchSuggestions.map((poi, index) => (
+                    <div
+                      key={index}
+                      className="suggestion-item"
+                      onClick={() => selectLocation(poi)}
+                    >
+                      <div className="suggestion-name">{poi.name}</div>
+                      <div className="suggestion-address">{poi.address}</div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-            <div 
-              className="road-point-hint"
-              title="智能道路吸附功能：点击地图时会自动找到最近的道路点，确保路线规划更加准确和实用"
-            >
-              🛣️ 系统会自动将点击位置转换为最近的道路点，确保路径规划准确
+          )}
+
+          {/* 状态显示 */}
+          {isRoutePlanning && (
+            <div className="planning-status">
+              <span className="planning-spinner">⏳</span>
+              <span>{planningProgress}</span>
             </div>
-            {currentRoute.points.length > 0 && (
+          )}
+
+          {isDrawing && (
+            <div className="status-group">
+              <div className="drawing-status">
+                绘制模式：点击地图或搜索地点添加轨迹点 (已添加 {currentRoute.points.length} 个点)
+              </div>
               <div 
-                className="drag-hint"
-                title="交互功能说明：拖拽任意轨迹点可以实时调整路线，系统会自动重新计算最优路径"
+                className="road-point-hint"
+                title="智能道路吸附功能：点击地图时会自动找到最近的道路点，确保路线规划更加准确和实用"
               >
-                💡 提示：可以拖拽轨迹点来调整位置，系统会自动重新规划路径
+                🛣️ 系统会自动将点击位置转换为最近的道路点，确保路径规划准确
               </div>
-            )}
-          </div>
-        )}
-
-        {/* {!isDrawing && routes.length > 0 && !batchMode && (
-          <div 
-            className="drag-hint"
-            title="操作指南：拖拽轨迹点调整路线 | 点击路径线更改颜色 | 切换路线时会自动调整地图视窗到最佳位置"
-          >
-            💡
-          </div>
-        )} */}
-
-        {batchMode && (
-          <div className="batch-mode-status">
-            <div className="batch-header">
-              <span>🎯 批量规划模式 - 已选择 {selectedLocations.length} 个位置</span>
-              <button onClick={exitBatchMode} className="btn btn-secondary btn-small">
-                退出批量模式
-              </button>
+              {currentRoute.points.length > 0 && (
+                <div 
+                  className="drag-hint"
+                  title="交互功能说明：拖拽任意轨迹点可以实时调整路线，系统会自动重新计算最优路径"
+                >
+                  💡 提示：可以拖拽轨迹点来调整位置，系统会自动重新规划路径
+                </div>
+              )}
             </div>
-            <div 
-              className="batch-hint"
-              title="批量规划使用方法：1.搜索地点 2.点击添加到列表 3.调整顺序 4.点击创建路线自动规划最优路径"
-            >
-              搜索并点击地点添加到列表，然后点击"创建路线"按顺序规划路径
+          )}
+
+          {batchMode && (
+            <div className="batch-mode-status">
+              <div className="batch-header">
+                <span>🎯 批量规划模式 - 已选择 {selectedLocations.length} 个位置</span>
+                <button onClick={exitBatchMode} className="btn btn-secondary btn-small">
+                  退出批量模式
+                </button>
+              </div>
+              <div 
+                className="batch-hint"
+                title="批量规划使用方法：1.搜索地点 2.点击添加到列表 3.调整顺序 4.点击创建路线自动规划最优路径"
+              >
+                搜索并点击地点添加到列表，然后点击"创建路线"按顺序规划路径
+              </div>
             </div>
-          </div>
-        )}
+          )}
         </div>
 
         {/* 颜色选择器弹窗 */}
@@ -1922,6 +2144,87 @@ interface TrackRoute {
 
           {/* 路线详情面板 */}
           <div className="route-panel">
+            {/* 方案切换器 */}
+            <div className="plan-selector">
+              <div className="plan-tabs">
+                {travelPlans.map(plan => (
+                  <div
+                    key={plan.id}
+                    className={`plan-tab ${currentPlanId === plan.id ? 'active' : ''}`}
+                    onClick={() => editingPlanName !== plan.id ? switchToPlan(plan.id) : undefined}
+                    title={`方案：${plan.name}\n路线数：${plan.routes.length}\n创建时间：${plan.createdAt.toLocaleString()}`}
+                  >
+                    <div className="plan-content">
+                      {editingPlanName === plan.id ? (
+                        <input
+                          type="text"
+                          value={tempPlanName}
+                          onChange={(e) => setTempPlanName(e.target.value)}
+                          onKeyPress={(e) => {
+                            if (e.key === 'Enter') {
+                              savePlanName(plan.id);
+                            } else if (e.key === 'Escape') {
+                              cancelEditPlanName();
+                            }
+                          }}
+                          onBlur={() => savePlanName(plan.id)}
+                          className="plan-name-input"
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                        />
+                      ) : (
+                        <div className="plan-name-display">
+                          <span className="plan-name">{plan.name}</span>
+                        </div>
+                      )}
+                      <span className="plan-info">({plan.routes.length}条路线)</span>
+                    </div>
+                    <div className="plan-actions">
+                      <button
+                        className="plan-edit-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          startEditPlanName(plan.id, plan.name);
+                        }}
+                        title="编辑方案名称"
+                      >
+                        ✏️
+                      </button>
+                      <button
+                        className="plan-copy-btn"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          copyPlan(plan.id);
+                        }}
+                        title="复制此方案"
+                      >
+                        📋
+                      </button>
+                      {travelPlans.length > 1 && (
+                        <button
+                          className="plan-delete-btn"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            deletePlan(plan.id);
+                          }}
+                          title="删除此方案"
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                ))}
+                <button
+                  className="plan-add-btn"
+                  onClick={createNewPlan}
+                  title="创建新方案"
+                >
+                  + 新方案
+                </button>
+              </div>
+            </div>
+
             {batchMode ? (
               <div className="batch-panel">
                 <h3>批量规划 ({selectedLocations.length})</h3>
@@ -2062,214 +2365,206 @@ interface TrackRoute {
               </div>
             ) : (
               <div className="route-detail-panel">
-                {/* 路线选择器 */}
-                <div className="route-selector">
-                  <h3>路线详情</h3>
-                  {routes.length > 0 && (
-                    <div className="route-tabs">
-                      {routes.map((route, index) => (
+                <h3>路线列表</h3>
+                {routes.length > 0 ? (
+                  <div className="route-accordion">
+                    {routes.map((route, index) => (
+                      <div 
+                        key={route.id} 
+                        className="route-accordion-item"
+                        style={{ borderLeftColor: route.color }}
+                      >
+                        {/* 路线标题栏 */}
                         <div
-                          key={route.id}
-                          className={`route-tab ${currentDetailRoute?.id === route.id ? 'active' : ''}`}
-                          onClick={() => selectRouteDetail(route)}
-                          style={{ borderLeftColor: route.color }}
+                          className={`route-header ${expandedRouteId === route.id ? 'expanded' : ''}`}
+                          onClick={() => toggleRouteExpansion(route)}
                         >
-                          <div className="route-tab-info">
-                            <span className="route-tab-name">{route.name}</span>
-                            <span className="route-tab-count">{route.points.length} 个点</span>
-                            <span className="route-tab-distance">{calculateTotalDistance(route)}</span>
+                          <div className="route-header-left">
+                            <div className="route-basic-info">
+                              {editingRouteName === route.id ? (
+                                <div className="inline-name-editor">
+                                  <input
+                                    type="text"
+                                    value={tempRouteName}
+                                    onChange={(e) => setTempRouteName(e.target.value)}
+                                    onKeyPress={(e) => {
+                                      if (e.key === 'Enter') {
+                                        saveRouteName(route.id);
+                                      } else if (e.key === 'Escape') {
+                                        cancelEditRouteName();
+                                      }
+                                    }}
+                                    onBlur={() => saveRouteName(route.id)}
+                                    className="inline-name-input"
+                                    autoFocus
+                                    onClick={(e) => e.stopPropagation()}
+                                  />
+                                </div>
+                              ) : (
+                                <div className="route-name-display">
+                                  <span className="route-name">{route.name}</span>
+                                  <button
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      startEditRouteName(route.id, route.name);
+                                    }}
+                                    className="inline-edit-btn always-visible"
+                                    title="编辑名称"
+                                  >
+                                    ✏️
+                                  </button>
+                                </div>
+                              )}
+                              <span className="route-meta">
+                                {route.points.length} 个位置 · {calculateTotalDistance(route)} · 
+                                {route.routeType === 'driving' ? ' 🚗 驾车' : 
+                                 route.routeType === 'walking' ? ' 🚶 步行' : ' 🚴 骑行'}
+                              </span>
+                            </div>
                           </div>
-                          <div className="route-tab-type">
-                            {route.routeType === 'driving' ? '🚗' : 
-                             route.routeType === 'walking' ? '🚶' : '🚴'}
+                          <div className="route-header-right">
+                            <span className={`expand-icon ${expandedRouteId === route.id ? 'expanded' : ''}`}>
+                              ▼
+                            </span>
                           </div>
                         </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
 
-                {/* 路线详情时间线 */}
-                {currentDetailRoute ? (
-                  <div className="route-timeline">
-                    <div className="route-header-info">
-                      <div className="route-title">
-                        <div
-                          className="route-color-indicator"
-                          style={{ backgroundColor: currentDetailRoute.color }}
-                        />
-                        {editingRouteName === currentDetailRoute.id ? (
-                          <div className="route-name-editor">
-                            <input
-                              type="text"
-                              value={tempRouteName}
-                              onChange={(e) => setTempRouteName(e.target.value)}
-                              onKeyPress={(e) => {
-                                if (e.key === 'Enter') {
-                                  saveRouteName(currentDetailRoute.id);
-                                } else if (e.key === 'Escape') {
-                                  cancelEditRouteName();
-                                }
-                              }}
-                              className="route-name-input"
-                              autoFocus
-                            />
-                            <button
-                              onClick={() => saveRouteName(currentDetailRoute.id)}
-                              className="btn-tiny btn-primary"
-                              title="保存"
-                            >
-                              ✓
-                            </button>
-                            <button
-                              onClick={cancelEditRouteName}
-                              className="btn-tiny btn-secondary"
-                              title="取消"
-                            >
-                              ×
-                            </button>
-                          </div>
-                        ) : (
-                          <div className="route-name-display">
-                            <span className="route-name">{currentDetailRoute.name}</span>
-                            <button
-                              onClick={() => startEditRouteName(currentDetailRoute.id, currentDetailRoute.name)}
-                              className="edit-name-btn"
-                              title="编辑名称"
-                            >
-                              ✏️
-                            </button>
+                        {/* 路线详情内容 - 折叠展开 */}
+                        {expandedRouteId === route.id && (
+                                                     <div className="route-timeline">
+                             {/* <div className="route-stats">
+                               <span className="point-count">共 {route.points.length} 个位置</span>
+                               <span className="total-distance">总距离: {calculateTotalDistance(route)}</span>
+                             </div> */}
+
+                            <div className="timeline-container">
+                              {route.points.map((point, index) => (
+                                <div key={index} className="timeline-item">
+                                  <div className="timeline-marker">
+                                    <div 
+                                      className="timeline-dot"
+                                      style={{ borderColor: route.color, color: route.color }}
+                                    >
+                                      {index === 0 ? '🚩' : 
+                                       index === route.points.length - 1 ? '🏁' : 
+                                       index + 1}
+                                    </div>
+                                    {index < route.points.length - 1 && (
+                                      <div className="timeline-connector">
+                                        <div className="timeline-line" style={{ borderColor: route.color }}></div>
+                                        <div className="distance-label">
+                                          {formatDistance(calculateDistance(route.points[index], route.points[index + 1]))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                  <div className="timeline-content">
+                                    <div className="point-header">
+                                      <div className="point-info">
+                                        <div className="point-name">
+                                          {point.name || `位置 ${index + 1}`}
+                                        </div>
+                                        <div className="point-coordinates">
+                                          {point.lng.toFixed(4)}, {point.lat.toFixed(4)}
+                                        </div>
+                                      </div>
+                                      <div className="point-actions">
+                                        {index > 0 && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              reorderRoutePoints(route.id, index, index - 1);
+                                            }}
+                                            className="move-point-btn move-up"
+                                            title="上移"
+                                          >
+                                            ↑
+                                          </button>
+                                        )}
+                                        {index < route.points.length - 1 && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              reorderRoutePoints(route.id, index, index + 1);
+                                            }}
+                                            className="move-point-btn move-down"
+                                            title="下移"
+                                          >
+                                            ↓
+                                          </button>
+                                        )}
+                                        {route.points.length > 2 && (
+                                          <button
+                                            onClick={(e) => {
+                                              e.stopPropagation();
+                                              deletePointAndReplan(route.id, index);
+                                            }}
+                                            className="delete-point-btn"
+                                            title="删除此点并重新规划"
+                                          >
+                                            ×
+                                          </button>
+                                        )}
+                                      </div>
+                                    </div>
+                                    {/* <div className="point-labels">
+                                      {index === 0 && (
+                                        <div className="point-label start-label">起点</div>
+                                      )}
+                                      {index === route.points.length - 1 && (
+                                        <div className="point-label end-label">终点</div>
+                                      )}
+                                      {index > 0 && index < route.points.length - 1 && (
+                                        <div className="point-label waypoint-label">途经点 {index}</div>
+                                      )}
+                                    </div> */}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* 路线操作按钮 */}
+                            <div className="route-actions-panel">
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  toggleRouteVisibility(route.id);
+                                }}
+                                className="btn btn-secondary"
+                                title="显示/隐藏此路线"
+                              >
+                                👁️ 切换
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  handleRouteClick(route.id);
+                                }}
+                                className="btn btn-primary"
+                                title="更改路线颜色"
+                              >
+                                🎨 调色
+                              </button>
+                              <button
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  deleteRoute(route.id);
+                                }}
+                                className="btn btn-danger"
+                                title="删除此路线"
+                              >
+                                🗑️ 删除
+                              </button>
+                            </div>
                           </div>
                         )}
-                        <span className="route-type-badge">
-                          {currentDetailRoute.routeType === 'driving' ? '🚗 驾车' : 
-                           currentDetailRoute.routeType === 'walking' ? '🚶 步行' : '🚴 骑行'}
-                        </span>
                       </div>
-                      <div className="route-stats">
-                        <span className="point-count">共 {currentDetailRoute.points.length} 个点</span>
-                        <span className="total-distance">总距离: {calculateTotalDistance(currentDetailRoute)}</span>
-                      </div>
-                    </div>
-
-                    <div 
-                      className="timeline-hint"
-                      title="路线编辑功能：使用上下箭头调整点的顺序，点击×删除不需要的点，系统会实时重新规划最优路径"
-                    >
-                      💡 可以调整顺序或删除点，系统会自动重新规划路径
-                    </div>
-
-                    <div className="timeline-container">
-                      {currentDetailRoute.points.map((point, index) => (
-                        <div key={index} className="timeline-item">
-                          <div className="timeline-marker">
-                            <div className="timeline-dot">
-                              {index === 0 ? '🚩' : 
-                               index === currentDetailRoute.points.length - 1 ? '🏁' : 
-                               index + 1}
-                            </div>
-                            {index < currentDetailRoute.points.length - 1 && (
-                              <div className="timeline-connector">
-                                <div className="timeline-line" style={{ borderColor: currentDetailRoute.color }}></div>
-                                <div className="distance-label">
-                                  {formatDistance(calculateDistance(currentDetailRoute.points[index], currentDetailRoute.points[index + 1]))}
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                          <div className="timeline-content">
-                            <div className="point-header">
-                              <div className="point-info">
-                                <div className="point-name">
-                                  {point.name || `位置 ${index + 1}`}
-                                </div>
-                                <div className="point-coordinates">
-                                  {point.lng.toFixed(6)}, {point.lat.toFixed(6)}
-                                </div>
-                              </div>
-                              <div className="point-actions">
-                                {index > 0 && (
-                                  <button
-                                    onClick={() => reorderRoutePoints(currentDetailRoute.id, index, index - 1)}
-                                    className="move-point-btn move-up"
-                                    title="上移"
-                                  >
-                                    ↑
-                                  </button>
-                                )}
-                                {index < currentDetailRoute.points.length - 1 && (
-                                  <button
-                                    onClick={() => reorderRoutePoints(currentDetailRoute.id, index, index + 1)}
-                                    className="move-point-btn move-down"
-                                    title="下移"
-                                  >
-                                    ↓
-                                  </button>
-                                )}
-                                {currentDetailRoute.points.length > 2 && (
-                                  <button
-                                    onClick={() => deletePointAndReplan(currentDetailRoute.id, index)}
-                                    className="delete-point-btn"
-                                    title="删除此点并重新规划"
-                                  >
-                                    ×
-                                  </button>
-                                )}
-                              </div>
-                            </div>
-                            <div className="point-labels">
-                              {index === 0 && (
-                                <div className="point-label start-label">起点</div>
-                              )}
-                              {index === currentDetailRoute.points.length - 1 && (
-                                <div className="point-label end-label">终点</div>
-                              )}
-                              {index > 0 && index < currentDetailRoute.points.length - 1 && (
-                                <div className="point-label waypoint-label">途经点 {index}</div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-
-                    {/* 路线操作按钮 */}
-                    <div className="route-actions-panel">
-                      <button
-                        onClick={() => toggleRouteVisibility(currentDetailRoute.id)}
-                        className="btn btn-secondary"
-                      >
-                        切换显示
-                      </button>
-                      <button
-                        onClick={() => handleRouteClick(currentDetailRoute.id)}
-                        className="btn btn-primary"
-                      >
-                        更改颜色
-                      </button>
-                      <button
-                        onClick={() => deleteRoute(currentDetailRoute.id)}
-                        className="btn btn-danger"
-                      >
-                        删除路线
-                      </button>
-                    </div>
+                    ))}
                   </div>
                 ) : (
-                  <div className="no-route-selected">
-                    {routes.length === 0 ? (
-                      <div className="empty-state">
-                        <div className="empty-icon">🗺️</div>
-                        <p>暂无路线</p>
-                        <p className="empty-hint">开始绘制或批量规划创建路线</p>
-                      </div>
-                    ) : (
-                      <div className="select-route-hint">
-                        <div className="hint-icon">🎯</div>
-                        <p>路线详情会在这里显示</p>
-                        <p className="hint-text">创建路线后将自动显示详情</p>
-                      </div>
-                    )}
+                  <div className="no-routes">
+                    <p>还没有路线，开始规划你的旅程吧！</p>
+                    <p>点击上方的"开始规划"或"批量规划"按钮来创建路线。</p>
                   </div>
                 )}
               </div>
