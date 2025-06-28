@@ -51,12 +51,7 @@ main {
   }
 }
 
-/* 按钮悬停效果 */
-button:hover {
-  opacity: 0.8;
-  transform: translateY(-1px);
-  transition: all 0.2s ease;
-}
+
 
 /* 卡片阴影效果 */
 .card {
