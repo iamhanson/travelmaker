@@ -67,6 +67,11 @@ interface TravelPlan {
   const [tempPlanName, setTempPlanName] = useState<string>('');
   const [isRoutePlanning, setIsRoutePlanning] = useState(false);
   const [planningProgress, setPlanningProgress] = useState<string>('');
+  // 路线详情中的搜索状态
+  const [routeDetailSearchInput, setRouteDetailSearchInput] = useState<string>('');
+  const [routeDetailSuggestions, setRouteDetailSuggestions] = useState<any[]>([]);
+  const [isRouteDetailSearching, setIsRouteDetailSearching] = useState(false);
+  const [showRouteDetailSearch, setShowRouteDetailSearch] = useState<string | null>(null); // 存储正在添加位置的路线ID
 
   // 预设颜色选项 - 更柔和的饱和度
   const colorOptions = [
@@ -1938,6 +1943,150 @@ interface TravelPlan {
     }
   };
 
+  // 路线详情搜索功能
+  const searchRouteDetailLocation = async (keyword: string) => {
+    if (!keyword.trim() || !AMapRef.current) {
+      setRouteDetailSuggestions([]);
+      return;
+    }
+
+    setIsRouteDetailSearching(true);
+    
+    try {
+      const placeSearch = new AMapRef.current.PlaceSearch({
+        city: '全国',
+        pageSize: 10
+      });
+
+      placeSearch.search(keyword, (status: string, result: any) => {
+        setIsRouteDetailSearching(false);
+        
+        if (status === 'complete' && result.poiList && result.poiList.pois) {
+          const formattedPois = result.poiList.pois.map((poi: any) => {
+            let lng: number = 0, lat: number = 0;
+            
+            if (poi.location) {
+              if (typeof poi.location === 'string') {
+                const coords = poi.location.split(',');
+                lng = parseFloat(coords[0]);
+                lat = parseFloat(coords[1]);
+              } else if (poi.location.lng !== undefined && poi.location.lat !== undefined) {
+                lng = poi.location.lng;
+                lat = poi.location.lat;
+              } else if (poi.location.getLng && poi.location.getLat) {
+                lng = poi.location.getLng();
+                lat = poi.location.getLat();
+              }
+            }
+            
+            return {
+              name: poi.name || '未知地点',
+              address: poi.address || poi.district || '地址未知',
+              location: { lng, lat }
+            };
+          }).filter((poi: any) => poi.location.lng && poi.location.lat);
+          
+          setRouteDetailSuggestions(formattedPois);
+        } else {
+          setRouteDetailSuggestions([]);
+        }
+      });
+    } catch (error) {
+      console.error('路线详情搜索失败:', error);
+      setIsRouteDetailSearching(false);
+      setRouteDetailSuggestions([]);
+    }
+  };
+
+  const handleRouteDetailInputChange = (value: string) => {
+    setRouteDetailSearchInput(value);
+    
+    if (searchTimeoutRef.current) {
+      clearTimeout(searchTimeoutRef.current);
+    }
+    
+    if (value.trim().length >= 2) {
+      searchTimeoutRef.current = setTimeout(() => {
+        searchRouteDetailLocation(value);
+      }, 500);
+    } else {
+      setRouteDetailSuggestions([]);
+    }
+  };
+
+  // 添加位置到指定路线
+  const addLocationToRoute = async (routeId: string, poi: any) => {
+    if (!poi.location) return;
+
+    const lng = poi.location.lng;
+    const lat = poi.location.lat;
+    
+    console.log('添加位置到路线:', routeId, poi.name);
+
+    // 将坐标转换为道路点
+    const roadPoint = await convertToRoadPoint(lng, lat);
+    
+    const newPoint: TrackPoint = {
+      lng: roadPoint.lng,
+      lat: roadPoint.lat,
+      name: poi.name
+    };
+
+    // 更新路线列表
+    setRoutes(prevRoutes => 
+      prevRoutes.map(route => {
+        if (route.id === routeId) {
+          const updatedRoute = {
+            ...route,
+            points: [...route.points, newPoint]
+          };
+          
+          // 在地图上更新路线
+          setTimeout(() => {
+            updateRouteOnMap(updatedRoute);
+          }, 100);
+          
+          return updatedRoute;
+        }
+        return route;
+      })
+    );
+
+    // 如果是当前详情路线，也更新详情
+    if (currentDetailRoute?.id === routeId) {
+      setCurrentDetailRoute(prev => prev ? {
+        ...prev,
+        points: [...prev.points, newPoint]
+      } : null);
+    }
+
+    // 移动地图到新添加的位置
+    if (mapRef.current) {
+      mapRef.current.setZoomAndCenter(13, [roadPoint.lng, roadPoint.lat]);
+    }
+
+    // 清空搜索状态
+    setRouteDetailSearchInput('');
+    setRouteDetailSuggestions([]);
+    setShowRouteDetailSearch(null);
+    
+    console.log('位置添加完成:', poi.name);
+  };
+
+  // 开始为路线添加位置
+  const startAddLocationToRoute = (routeId: string) => {
+    setShowRouteDetailSearch(routeId);
+    setRouteDetailSearchInput('');
+    setRouteDetailSuggestions([]);
+  };
+
+  // 取消添加位置
+  const cancelAddLocationToRoute = () => {
+    setShowRouteDetailSearch(null);
+    setRouteDetailSearchInput('');
+    setRouteDetailSuggestions([]);
+  };
+
   return (
     <div className="map-tracker">
        {/*<div className="header">
@@ -2522,6 +2671,66 @@ interface TravelPlan {
                                 </div>
                               ))}
                             </div>
+
+                            {/* 添加位置功能 */}
+                            {showRouteDetailSearch === route.id ? (
+                              <div className="add-location-panel">
+                                <div className="add-location-header">
+                                  <span>添加新位置到 "{route.name}"</span>
+                                  <button
+                                    onClick={cancelAddLocationToRoute}
+                                    className="cancel-add-btn"
+                                    title="取消添加"
+                                  >
+                                    ×
+                                  </button>
+                                </div>
+                                <div className="route-detail-search-container">
+                                  <input
+                                    type="text"
+                                    value={routeDetailSearchInput}
+                                    onChange={(e) => handleRouteDetailInputChange(e.target.value)}
+                                    placeholder="搜索地点添加到路线..."
+                                    className="route-detail-search-input"
+                                    autoFocus
+                                  />
+                                  
+                                  {isRouteDetailSearching && (
+                                    <div className="route-detail-search-loading">
+                                      搜索中...
+                                    </div>
+                                  )}
+                                  
+                                  {routeDetailSuggestions.length > 0 && (
+                                    <div className="route-detail-search-suggestions">
+                                      {routeDetailSuggestions.map((poi, index) => (
+                                        <div
+                                          key={index}
+                                          className="route-detail-suggestion-item"
+                                          onClick={() => addLocationToRoute(route.id, poi)}
+                                        >
+                                          <div className="suggestion-name">{poi.name}</div>
+                                          <div className="suggestion-address">{poi.address}</div>
+                                        </div>
+                                      ))}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="add-location-trigger">
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    startAddLocationToRoute(route.id);
+                                  }}
+                                  className="btn btn-success add-location-btn"
+                                  title="添加新位置到此路线"
+                                >
+                                  +添加位置
+                                </button>
+                              </div>
+                            )}
 
                             {/* 路线操作按钮 */}
                             <div className="route-actions-panel">

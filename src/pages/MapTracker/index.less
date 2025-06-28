@@ -1810,4 +1810,145 @@
       opacity: 1 !important;
     }
   }
+
+  // 路线详情中添加位置的样式
+  .add-location-panel {
+    margin: 15px 0;
+    padding: 15px;
+    background: #f8f9fa;
+    border-radius: 8px;
+    border: 1px solid #e9ecef;
+
+    .add-location-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 12px;
+      font-weight: 500;
+      color: #28a745;
+
+      .cancel-add-btn {
+        background: none;
+        border: none;
+        font-size: 18px;
+        color: #6c757d;
+        cursor: pointer;
+        padding: 2px 6px;
+        border-radius: 3px;
+        transition: all 0.2s;
+
+        &:hover {
+          background: rgba(0, 0, 0, 0.1);
+          color: #495057;
+        }
+      }
+    }
+
+    .route-detail-search-container {
+      position: relative;
+
+      .route-detail-search-input {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid #ced4da;
+        border-radius: 6px;
+        font-size: 14px;
+        background-color: white;
+        transition: all 0.2s ease;
+
+        &:focus {
+          outline: none;
+          border-color: #28a745;
+          box-shadow: 0 0 0 2px rgba(40, 167, 69, 0.2);
+        }
+      }
+
+      .route-detail-search-loading {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        background-color: white;
+        border: 1px solid #ced4da;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        padding: 12px;
+        text-align: center;
+        color: #6c757d;
+        font-size: 14px;
+        z-index: 1000;
+      }
+
+      .route-detail-search-suggestions {
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        max-height: 200px;
+        overflow-y: auto;
+        background-color: white;
+        border: 1px solid #ced4da;
+        border-top: none;
+        border-radius: 0 0 6px 6px;
+        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+        z-index: 1000;
+
+        .route-detail-suggestion-item {
+          padding: 12px;
+          cursor: pointer;
+          border-bottom: 1px solid #f8f9fa;
+          transition: background-color 0.2s;
+
+          &:hover {
+            background-color: #f8f9fa;
+          }
+
+          &:last-child {
+            border-bottom: none;
+          }
+
+          .suggestion-name {
+            font-weight: 500;
+            color: #495057;
+            margin-bottom: 4px;
+          }
+
+          .suggestion-address {
+            font-size: 12px;
+            color: #6c757d;
+          }
+        }
+      }
+    }
+  }
+
+  .add-location-trigger {
+    margin: 15px 0;
+    text-align: center;
+
+    .add-location-btn {
+      background: #28a745;
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 5px 8px;
+      font-size: 14px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+
+      &:hover {
+        background: #218838;
+        transform: translateY(-1px);
+        box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+      }
+
+      &:active {
+        transform: translateY(0);
+      }
+    }
+  }
 } 
