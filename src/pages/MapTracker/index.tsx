@@ -36,6 +36,8 @@ interface TravelPlan {
   const updateTimeoutRef = useRef<NodeJS.Timeout | null>(null);
   const routePlanningQueueRef = useRef<Array<() => Promise<any>>>([]);
   const isProcessingQueueRef = useRef(false);
+  // 路径规划缓存 - 存储已规划的路径段
+  const routePlanningCacheRef = useRef<Map<string, number[][]>>(new Map());
     const [map, setMap] = useState<any>(null);
     const [AMap, setAMapInstance] = useState<any>(null);
     const [locationInput, setLocationInput] = useState('');
@@ -610,6 +612,10 @@ interface TravelPlan {
       // 添加拖拽事件监听器 - 简化版本
       marker.on('dragend', async (e: any) => {
         console.log('=== 标记点拖拽结束 ===');
+        
+        // 拖拽开始前先清空路径规划队列
+        clearRoutePlanningQueue();
+        
         const newPosition = e.lnglat || e.target.getPosition();
         const newLng = newPosition.lng || newPosition.getLng();
         const newLat = newPosition.lat || newPosition.getLat();
@@ -885,7 +891,13 @@ interface TravelPlan {
     let completedTasks = 0;
     
     // 动态计算总任务数，包括处理过程中可能添加的新任务
-    while (routePlanningQueueRef.current.length > 0) {
+    while (routePlanningQueueRef.current.length > 0 && isProcessingQueueRef.current) {
+      // 检查处理状态，如果被清空队列函数重置，则停止处理
+      if (!isProcessingQueueRef.current) {
+        console.log('队列处理被中断（队列已清空）');
+        break;
+      }
+      
       const currentTotalTasks = completedTasks + routePlanningQueueRef.current.length;
       console.log(`处理路径规划队列，当前队列长度: ${routePlanningQueueRef.current.length}, 总任务数: ${currentTotalTasks}`);
       
@@ -898,7 +910,7 @@ interface TravelPlan {
           completedTasks++;
           
           // 限制频率：每500ms处理一个请求（2次/秒）
-          if (routePlanningQueueRef.current.length > 0) {
+          if (routePlanningQueueRef.current.length > 0 && isProcessingQueueRef.current) {
             await new Promise(resolve => setTimeout(resolve, 500));
           }
         } catch (error) {
@@ -908,10 +920,13 @@ interface TravelPlan {
       }
     }
 
-    isProcessingQueueRef.current = false;
-    setIsRoutePlanning(false);
-    setPlanningProgress('');
-    console.log(`路径规划队列处理完成，共完成 ${completedTasks} 个任务`);
+    // 只有在正常完成时才重置状态（避免与clearRoutePlanningQueue冲突）
+    if (isProcessingQueueRef.current) {
+      isProcessingQueueRef.current = false;
+      setIsRoutePlanning(false);
+      setPlanningProgress('');
+      console.log(`路径规划队列处理完成，共完成 ${completedTasks} 个任务`);
+    }
   };
 
   // 添加路径规划任务到队列
@@ -920,17 +935,78 @@ interface TravelPlan {
     processRoutePlanningQueue();
   };
 
+  // 清空路径规划队列
+  const clearRoutePlanningQueue = () => {
+    console.log(`清空路径规划队列，当前队列长度: ${routePlanningQueueRef.current.length}`);
+    routePlanningQueueRef.current.length = 0; // 清空队列
+    isProcessingQueueRef.current = false; // 重置处理状态
+    setIsRoutePlanning(false); // 重置规划状态
+    setPlanningProgress(''); // 清空进度提示
+  };
+
+  // 生成路径缓存的key
+  const generateCacheKey = (startPoint: TrackPoint, endPoint: TrackPoint, routeType: string | undefined): string => {
+    // 使用起点、终点坐标和路径类型生成唯一key
+    const startKey = `${startPoint.lng.toFixed(6)},${startPoint.lat.toFixed(6)}`;
+    const endKey = `${endPoint.lng.toFixed(6)},${endPoint.lat.toFixed(6)}`;
+    const type = routeType || 'driving'; // 默认使用driving
+    return `${type}:${startKey}->${endKey}`;
+  };
+
+  // 从缓存获取路径
+  const getCachedRoute = (startPoint: TrackPoint, endPoint: TrackPoint, routeType: string): number[][] | null => {
+    const cacheKey = generateCacheKey(startPoint, endPoint, routeType);
+    const cachedPath = routePlanningCacheRef.current.get(cacheKey);
+    if (cachedPath) {
+      console.log(`🎯 缓存命中: ${cacheKey}`);
+      return cachedPath;
+    }
+    return null;
+  };
+
+  // 将路径存入缓存
+  const setCachedRoute = (startPoint: TrackPoint, endPoint: TrackPoint, routeType: string, path: number[][]): void => {
+    const cacheKey = generateCacheKey(startPoint, endPoint, routeType);
+    routePlanningCacheRef.current.set(cacheKey, path);
+    console.log(`💾 路径已缓存: ${cacheKey}, 点数: ${path.length}`);
+    
+    // 限制缓存大小，避免内存占用过大
+    if (routePlanningCacheRef.current.size > 100) {
+      // 删除最老的缓存项（Map会保持插入顺序）
+      const firstKey = routePlanningCacheRef.current.keys().next().value;
+      routePlanningCacheRef.current.delete(firstKey);
+      console.log(`🗑️ 删除最老的缓存项: ${firstKey}`);
+    }
+  };
+
+  // 清空路径缓存（仅在必要时使用，比如用户手动清理或内存不足）
+  const clearRouteCache = () => {
+    const cacheSize = routePlanningCacheRef.current.size;
+    routePlanningCacheRef.current.clear();
+    console.log(`🧹 清空路径缓存，共清除 ${cacheSize} 项`);
+  };
+
   // 规划两点之间的路径
-  const planRoute = (currentAMap: any, startPoint: TrackPoint, endPoint: TrackPoint, routeType: string): Promise<number[][]> => {
+  const planRoute = (currentAMap: any, startPoint: TrackPoint, endPoint: TrackPoint, routeType: string | undefined): Promise<number[][]> => {
     return new Promise((resolve, reject) => {
-      console.log(`开始规划路径: ${routeType}模式`);
+      const actualRouteType = routeType || 'driving'; // 默认使用driving
+      console.log(`开始规划路径: ${actualRouteType}模式`);
       console.log('起点:', startPoint);
       console.log('终点:', endPoint);
       
+      // 先检查缓存
+      const cachedPath = getCachedRoute(startPoint, endPoint, actualRouteType);
+      if (cachedPath) {
+        console.log('✅ 使用缓存路径，跳过API调用');
+        resolve(cachedPath);
+        return;
+      }
+      
+      console.log('📡 缓存未命中，调用API规划路径');
       let routePlanner: any;
       
       // 根据路径类型创建相应的规划器
-      switch (routeType) {
+      switch (actualRouteType) {
         case 'driving':
           routePlanner = new currentAMap.Driving({
             map: null, // 不显示默认路线，我们自己绘制
@@ -995,22 +1071,33 @@ interface TravelPlan {
           console.log(`提取的路径点数: ${path.length}`);
           
           if (path.length > 0) {
+            // 将成功的路径存入缓存
+            setCachedRoute(startPoint, endPoint, actualRouteType, path);
             resolve(path);
           } else {
             console.warn('路径规划成功但没有路径点，使用直线连接');
-            resolve([[startPoint.lng, startPoint.lat], [endPoint.lng, endPoint.lat]]);
+            const straightPath = [[startPoint.lng, startPoint.lat], [endPoint.lng, endPoint.lat]];
+            // 直线路径也可以缓存
+            setCachedRoute(startPoint, endPoint, actualRouteType, straightPath);
+            resolve(straightPath);
           }
         } else {
           console.error('路径规划失败:', status, result);
           console.log('使用直线连接作为备选方案');
           // 如果路径规划失败，使用直线连接
-          resolve([[startPoint.lng, startPoint.lat], [endPoint.lng, endPoint.lat]]);
+          const straightPath = [[startPoint.lng, startPoint.lat], [endPoint.lng, endPoint.lat]];
+          // 失败的情况也可以缓存直线路径，避免重复调用
+          setCachedRoute(startPoint, endPoint, actualRouteType, straightPath);
+          resolve(straightPath);
         }
       });
     });
   };
 
   const startDrawing = () => {
+    // 开始新的绘制前先清空路径规划队列
+    clearRoutePlanningQueue();
+    
     setIsDrawing(true);
     isDrawingRef.current = true;
     setCurrentRoute({
@@ -1028,6 +1115,9 @@ interface TravelPlan {
     if (currentRoute.points.length <= 1) {
       return; // 至少保留一个点，或者全部删除
     }
+
+    // 删除点前先清空路径规划队列
+    clearRoutePlanningQueue();
 
     console.log(`删除当前路线的第 ${pointIndex + 1} 个点`);
     
@@ -1159,6 +1249,9 @@ interface TravelPlan {
       return;
     }
 
+    // 清除所有路线前先清空路径规划队列
+    clearRoutePlanningQueue();
+
     if (mapRef.current) {
       mapRef.current.clearMap();
     }
@@ -1183,6 +1276,9 @@ interface TravelPlan {
   };
 
   const deleteRoute = (routeId: string) => {
+    // 删除路线前先清空路径规划队列
+    clearRoutePlanningQueue();
+    
     const routeToDelete = routes.find(r => r.id === routeId);
     if (routeToDelete && mapRef.current) {
       if (routeToDelete.polyline) {
@@ -1386,6 +1482,9 @@ interface TravelPlan {
       return;
     }
 
+    // 批量创建前先清空路径规划队列
+    clearRoutePlanningQueue();
+
     console.log('开始批量创建路线，位置数量:', selectedLocations.length);
 
     // 转换所有位置为道路点
@@ -1585,6 +1684,9 @@ interface TravelPlan {
       return;
     }
 
+    // 删除点前先清空路径规划队列
+    clearRoutePlanningQueue();
+
     console.log(`删除路线 ${route.name} 的第 ${pointIndex + 1} 个点:`, pointToDelete);
 
     const currentMap = mapRef.current;
@@ -1692,6 +1794,9 @@ interface TravelPlan {
     const route = routes.find(r => r.id === routeId);
     if (!route) return;
 
+    // 重新排序前先清空路径规划队列
+    clearRoutePlanningQueue();
+
     console.log(`重新排序路线 ${route.name}: 从位置 ${fromIndex + 1} 移动到位置 ${toIndex + 1}`);
 
     // 创建新的点数组
@@ -1781,6 +1886,10 @@ interface TravelPlan {
 
   // 方案管理函数
   const createNewPlan = () => {
+    // 创建新方案前先清空路径规划队列，但保留缓存
+    clearRoutePlanningQueue();
+    // 注意：不清空缓存，新方案也可以复用已有的路径缓存
+    
     const newPlan: TravelPlan = {
       id: `plan_${Date.now()}`,
       name: `方案${travelPlans.length + 1}`,
@@ -1801,6 +1910,10 @@ interface TravelPlan {
   const switchToPlan = (planId: string) => {
     const targetPlan = travelPlans.find(plan => plan.id === planId);
     if (targetPlan) {
+      // 切换方案前先清空路径规划队列，但保留缓存
+      clearRoutePlanningQueue();
+      // 注意：不清空缓存，因为相同的起点终点应该复用缓存
+      
       setCurrentPlanId(planId);
       setRoutes(targetPlan.routes);
       setCurrentDetailRoute(null); // 清除当前选中的路线详情
@@ -2017,6 +2130,9 @@ interface TravelPlan {
   // 添加位置到指定路线
   const addLocationToRoute = async (routeId: string, poi: any) => {
     if (!poi.location) return;
+
+    // 添加位置前先清空路径规划队列
+    clearRoutePlanningQueue();
 
     const lng = poi.location.lng;
     const lat = poi.location.lat;
